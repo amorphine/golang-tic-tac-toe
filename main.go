@@ -36,6 +36,10 @@ func (p *Client) Prompt(msg string) (string, error) {
 	for {
 		_, err = p.Connection.Read(input)
 
+		if err != nil {
+			return "", err
+		}
+
 		stringInput := string(input)
 
 		if stringInput == "\r" || stringInput == "\n" {
@@ -107,7 +111,9 @@ func StartTelnetServer(c chan *Client) {
 
 	listener, err := net.Listen("tcp", ":5555")
 
-	defer listener.Close()
+	defer func() {
+		listener.Close()
+	}()
 
 	if err != nil {
 		panic(err)
