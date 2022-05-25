@@ -1,28 +1,31 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"strings"
 )
 
-type Client struct {
+type TelnetClient struct {
 	Connection net.Conn
 }
 
-func (p *Client) Send(s string) error {
+func (p *TelnetClient) Send(s string) error {
 	con := p.Connection
 
 	_, err := con.Write([]byte(s + "\n\r"))
 
 	if err != nil {
-		log.Fatal("Client lost connection")
+		log.Fatal("TelnetClient lost connection")
 	}
+
+	log.Println(fmt.Sprintf("Message sent: %s", s))
 
 	return err
 }
 
-func (p *Client) Prompt(msg string) (string, error) {
+func (p *TelnetClient) Prompt(msg string) (string, error) {
 	err := p.Send(msg)
 
 	if err != nil {
@@ -50,19 +53,23 @@ func (p *Client) Prompt(msg string) (string, error) {
 	}
 }
 
+func (p *TelnetClient) OnGameFinish() {
+	_ = p.Connection.Close()
+}
+
 type Queue struct {
-	Items []*Client
+	Items []Client
 }
 
 var queue = Queue{
-	Items: make([]*Client, 0),
+	Items: make([]Client, 0),
 }
 
-func (q *Queue) Add(p *Client) {
+func (q *Queue) Add(p *TelnetClient) {
 	q.Items = append(q.Items, p)
 }
 
-func (q *Queue) Pop() (p *Client) {
+func (q *Queue) Pop() (p Client) {
 	if len(q.Items) > 0 {
 		p = q.Items[0]
 
@@ -73,7 +80,7 @@ func (q *Queue) Pop() (p *Client) {
 }
 
 func main() {
-	c := make(chan *Client)
+	c := make(chan *TelnetClient)
 
 	go StartTelnetServer(c)
 
@@ -86,33 +93,51 @@ func main() {
 
 func MakeMatch() {
 	if len(queue.Items) == 1 {
-		queue.Items[0].Send("Please wait for other players")
+		_ = queue.Items[0].Send("Please wait for other players")
 
 		return
 	}
 
-	if len(queue.Items) >= 2 {
-		go StartGame(queue.Pop(), queue.Pop())
+	if len(queue.Items) < 2 {
+		return
 	}
+
+	go func() {
+		c1, c2 := queue.Pop(), queue.Pop()
+
+		StartGame(c1, c2)
+
+		c1.OnGameFinish()
+
+		c2.OnGameFinish()
+	}()
 }
 
-func StartGame(a, b *Client) {
+func StartGame(a, b Client) {
 	log.Println("Start game called")
 
 	g := CreateGame(a, b)
 
 	log.Println("Game created")
 
-	g.Move(g.Players[0])
+	err := g.Start()
+
+	if err != nil {
+		log.Println(err)
+
+		return
+	}
+
+	log.Println("Game finished")
 }
 
-func StartTelnetServer(c chan *Client) {
+func StartTelnetServer(c chan *TelnetClient) {
 	log.Print("Making listener")
 
 	listener, err := net.Listen("tcp", ":5555")
 
 	defer func() {
-		listener.Close()
+		_ = listener.Close()
 	}()
 
 	if err != nil {
@@ -129,11 +154,9 @@ func StartTelnetServer(c chan *Client) {
 		log.Print("New player joined")
 
 		go func() {
-			player := Client{
+			player := TelnetClient{
 				Connection: conn,
 			}
-
-			player.Send("Hello there\n")
 
 			queue.Add(&player)
 

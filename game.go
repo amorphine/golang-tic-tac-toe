@@ -1,10 +1,17 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 )
+
+type Client interface {
+	Send(s string) error
+	Prompt(msg string) (string, error)
+	OnGameFinish()
+}
 
 type Symbol uint8
 
@@ -73,7 +80,7 @@ func (b *Board) CheckWinner(x, y int) bool {
 	return false
 }
 
-func (b *Board) Print()string {
+func (b *Board) Print() string {
 	r := ""
 
 	cells := b.Cells
@@ -103,18 +110,30 @@ func (b *Board) Print()string {
 		r += "--------\r\n"
 	}
 
-	return r	
+	return r
+}
+
+func (b *Board) CheckAllCellsBusy() bool {
+	for y := range b.Cells {
+		for x := range b.Cells {
+			if b.Cells[y][x] == None {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 type Player struct {
-	*Client
+	Client
 	Symbol
 }
 
 type Game struct {
 	Board
 	Players []*Player
-	Winner *Player
+	Winner  *Player
 }
 
 func (g *Game) Broadcast(s string) error {
@@ -130,10 +149,15 @@ func (g *Game) Broadcast(s string) error {
 }
 
 func (g *Game) Finish() {
-	g.Broadcast(fmt.Sprintf("Player %s won. Thanks for the game!", g.Winner))
+	if g.Winner != nil {
 
-	for _, p := range g.Players {
-		p.Connection.Close()
+		_ = g.Broadcast(fmt.Sprintf("Player %s won. Thanks for the game!", g.Winner))
+
+		return
+	}
+
+	if g.CheckAllCellsBusy() {
+		_ = g.Broadcast("Draw!")
 	}
 }
 
@@ -147,34 +171,74 @@ func (g *Game) NextPlayer(p *Player) *Player {
 	return nil
 }
 
-func (g *Game) Move(p *Player) {
+func (g *Game) Move(p *Player) error {
 	for _, otherPlayer := range g.Players {
 		if otherPlayer == p {
 			continue
 		}
 
-		otherPlayer.Send(fmt.Sprintf("Player %d is thinking", p.Symbol))
+		err := otherPlayer.Send(fmt.Sprintf("Player %d is thinking", p.Symbol))
+
+		if err != nil {
+			return err
+		}
 	}
 
 	x, y := g.AskForMove(p)
-	
+
 	// check winner after each move
 	won := g.CheckWinner(x, y)
 
 	if won {
 		g.Winner = p
-
-		g.Finish()
-
-		return
 	}
-		
-	g.Move(g.NextPlayer(p))
+
+	return nil
+}
+
+func (g *Game) Start() error {
+	// check enough players
+	if len(g.Players) < 2 {
+		return errors.New("not enough players")
+	}
+
+	// find the first player
+	var player *Player
+
+	for _, p := range g.Players {
+		if p.Symbol == Cross {
+			player = p
+		}
+	}
+
+	if player == nil {
+		player = g.Players[0]
+	}
+
+	// start cycle
+	for {
+		if g.Winner != nil || g.CheckAllCellsBusy() {
+			break
+		}
+
+		err := g.Move(player)
+
+		if err != nil {
+			return err
+		}
+
+		player = g.NextPlayer(player)
+	}
+
+	// finish game
+	g.Finish()
+
+	return nil
 }
 
 func (g *Game) AskForMove(player *Player) (x, y int) {
-	player.Send(g.Print())
-	
+	_ = player.Send(g.Print())
+
 	prompt, _ := player.Prompt("Your turn")
 
 	prompt = strings.Trim(prompt, " ")
@@ -199,7 +263,8 @@ func (g *Game) AskForMove(player *Player) (x, y int) {
 
 	// check bounds
 	if x > g.Size-1 || y > g.Size-1 {
-		player.Send("Out of bounds")
+		_ = player.Send("Out of bounds")
+
 		g.AskForMove(player)
 	}
 
@@ -209,9 +274,9 @@ func (g *Game) AskForMove(player *Player) (x, y int) {
 
 	g.SetSymbol(player.Symbol, x, y)
 
-	player.Send("You move has been accepted")
+	_ = player.Send("You move has been accepted")
 
-	player.Send(g.Print())
+	_ = player.Send(g.Print())
 
 	return
 }
@@ -229,7 +294,7 @@ func CreateBoard() Board {
 	return b
 }
 
-func CreateGame(a, b *Client) *Game {
+func CreateGame(a, b Client) *Game {
 	g := Game{
 		Board: CreateBoard(),
 		Players: []*Player{
@@ -244,7 +309,7 @@ func CreateGame(a, b *Client) *Game {
 	}
 
 	for _, player := range g.Players {
-		player.Send(fmt.Sprintf("You play for %s", player.Symbol))
+		_ = player.Send(fmt.Sprintf("You play for %s", player.Symbol))
 	}
 
 	return &g
