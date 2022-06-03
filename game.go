@@ -205,7 +205,11 @@ func (g *Game) Start() error {
 }
 
 func (g *Game) AskForMove(player *Player) (x, y int) {
-	prompt, _ := player.AskForMove()
+	prompt, err := player.AskForMove()
+
+	if err != nil {
+		g.Finish()
+	}
 
 	prompt = strings.Trim(prompt, " ")
 
@@ -215,7 +219,7 @@ func (g *Game) AskForMove(player *Player) (x, y int) {
 		return g.AskForMove(player)
 	}
 
-	x, err := strconv.Atoi(arr[0])
+	x, err = strconv.Atoi(arr[0])
 
 	if err != nil {
 		return g.AskForMove(player)
