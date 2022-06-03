@@ -11,8 +11,8 @@ type TelnetClient struct {
 	Connection net.Conn
 }
 
-func (p *TelnetClient) Send(s string) error {
-	con := p.Connection
+func (c *TelnetClient) Send(s string) error {
+	con := c.Connection
 
 	_, err := con.Write([]byte(s + "\n\r"))
 
@@ -25,8 +25,51 @@ func (p *TelnetClient) Send(s string) error {
 	return err
 }
 
-func (p *TelnetClient) Prompt(msg string) (string, error) {
-	err := p.Send(msg)
+func PrintBoard(b *Board) string {
+	r := ""
+
+	cells := b.Cells
+
+	r += " "
+
+	for k := range cells {
+		r += fmt.Sprintf("|%d", k)
+	}
+
+	r += "|\r\n"
+
+	r += "--------\r\n"
+
+	for i := range cells {
+		r += fmt.Sprintf("%d|", i)
+		for k, j := range cells[i] {
+			r += j.String()
+
+			if k < len(cells[i]) {
+				r += "|"
+			}
+		}
+
+		r += "\r\n"
+
+		r += "--------\r\n"
+	}
+
+	return r
+}
+
+func (c *TelnetClient) SendBoardState(b *Board) error {
+	err := c.Send(PrintBoard(b))
+
+	if err != nil {
+		log.Fatal("TelnetClient lost connection")
+	}
+
+	return err
+}
+
+func (c *TelnetClient) AskForMove() (string, error) {
+	err := c.Send("Your turn")
 
 	if err != nil {
 		return "", err
@@ -37,7 +80,7 @@ func (p *TelnetClient) Prompt(msg string) (string, error) {
 	var sb strings.Builder
 
 	for {
-		_, err = p.Connection.Read(input)
+		_, err = c.Connection.Read(input)
 
 		if err != nil {
 			return "", err
@@ -53,8 +96,8 @@ func (p *TelnetClient) Prompt(msg string) (string, error) {
 	}
 }
 
-func (p *TelnetClient) OnGameFinish() {
-	_ = p.Connection.Close()
+func (c *TelnetClient) OnGameFinish() {
+	_ = c.Connection.Close()
 }
 
 func StartTelnetServer(c chan *TelnetClient) {

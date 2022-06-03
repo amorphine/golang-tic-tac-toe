@@ -8,9 +8,10 @@ import (
 )
 
 type Client interface {
-	Send(s string) error
-	Prompt(msg string) (string, error)
+	AskForMove() (string, error)
 	OnGameFinish()
+	Send(s string) error
+	SendBoardState(b *Board) error
 }
 
 type Symbol uint8
@@ -78,39 +79,6 @@ func (b *Board) CheckWinner(x, y int) bool {
 	}
 
 	return false
-}
-
-func (b *Board) Print() string {
-	r := ""
-
-	cells := b.Cells
-
-	r += " "
-
-	for k := range cells {
-		r += fmt.Sprintf("|%d", k)
-	}
-
-	r += "|\r\n"
-
-	r += "--------\r\n"
-
-	for i := range cells {
-		r += fmt.Sprintf("%d|", i)
-		for k, j := range cells[i] {
-			r += j.String()
-
-			if k < len(cells[i]) {
-				r += "|"
-			}
-		}
-
-		r += "\r\n"
-
-		r += "--------\r\n"
-	}
-
-	return r
 }
 
 func (b *Board) CheckAllCellsBusy() bool {
@@ -237,9 +205,7 @@ func (g *Game) Start() error {
 }
 
 func (g *Game) AskForMove(player *Player) (x, y int) {
-	_ = player.Send(g.Print())
-
-	prompt, _ := player.Prompt("Your turn")
+	prompt, _ := player.AskForMove()
 
 	prompt = strings.Trim(prompt, " ")
 
@@ -275,8 +241,6 @@ func (g *Game) AskForMove(player *Player) (x, y int) {
 	g.SetSymbol(player.Symbol, x, y)
 
 	_ = player.Send("You move has been accepted")
-
-	_ = player.Send(g.Print())
 
 	return
 }
