@@ -12,7 +12,7 @@ var queue = Queue{
 	Items: make([]Client, 0),
 }
 
-func (q *Queue) Add(p *TelnetClient) {
+func (q *Queue) Add(p Client) {
 	q.Items = append(q.Items, p)
 }
 
@@ -27,9 +27,11 @@ func (q *Queue) Pop() (p Client) {
 }
 
 func main() {
-	c := make(chan *TelnetClient)
+	c := make(chan Client)
 
 	go StartTelnetServer(c)
+
+	go StartWebsocketServer(c)
 
 	for {
 		<-c
@@ -40,7 +42,11 @@ func main() {
 
 func MakeMatch() {
 	if len(queue.Items) == 1 {
-		_ = queue.Items[0].Send("Please wait for other players")
+		err := queue.Items[0].Send("Please wait for other players")
+
+		if err != nil {
+			log.Println(err)
+		}
 
 		return
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 )
@@ -12,6 +13,7 @@ type Client interface {
 	OnGameFinish()
 	Send(s string) error
 	SendBoardState(b *Board) error
+	GetDisconnectChan() chan bool
 }
 
 type Symbol uint8
@@ -102,6 +104,7 @@ type Game struct {
 	Board
 	Players []*Player
 	Winner  *Player
+	DisconnectedPlayer chan *Player
 }
 
 func (g *Game) Broadcast(s string) error {
@@ -177,6 +180,16 @@ func (g *Game) Start() error {
 		if p.Symbol == Cross {
 			player = p
 		}
+
+		err := p.SendBoardState(&g.Board)
+
+		if err != nil {
+			log.Println(err)
+
+			g.Finish()
+
+			return err
+		}
 	}
 
 	if player == nil {
@@ -188,7 +201,6 @@ func (g *Game) Start() error {
 		if g.Winner != nil || g.CheckAllCellsBusy() {
 			break
 		}
-
 		err := g.Move(player)
 
 		if err != nil {
@@ -208,7 +220,11 @@ func (g *Game) AskForMove(player *Player) (x, y int) {
 	prompt, err := player.AskForMove()
 
 	if err != nil {
+		log.Println(err)
+
 		g.Finish()
+
+		return
 	}
 
 	prompt = strings.Trim(prompt, " ")
@@ -263,16 +279,20 @@ func CreateBoard() Board {
 }
 
 func CreateGame(a, b Client) *Game {
+	p1 := &Player{
+		Client: a,
+		Symbol: Cross,
+	}
+	p2 := &Player{
+		Client: b,
+		Symbol: Circle,
+	}
+
 	g := Game{
 		Board: CreateBoard(),
 		Players: []*Player{
-			{
-				Client: a,
-				Symbol: Cross,
-			}, {
-				Client: b,
-				Symbol: Circle,
-			},
+			p1,
+			p2,
 		},
 	}
 

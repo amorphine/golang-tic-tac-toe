@@ -9,6 +9,11 @@ import (
 
 type TelnetClient struct {
 	Connection net.Conn
+	disconnectChan chan bool
+}
+
+func (c *TelnetClient) GetDisconnectChan() chan bool {
+	return c.disconnectChan
 }
 
 func (c *TelnetClient) Send(s string) error {
@@ -100,7 +105,7 @@ func (c *TelnetClient) OnGameFinish() {
 	_ = c.Connection.Close()
 }
 
-func StartTelnetServer(c chan *TelnetClient) {
+func StartTelnetServer(c chan Client) {
 	log.Print("Making listener")
 
 	listener, err := net.Listen("tcp", ":5555")
@@ -125,6 +130,7 @@ func StartTelnetServer(c chan *TelnetClient) {
 		go func() {
 			player := TelnetClient{
 				Connection: conn,
+				disconnectChan: make(chan bool),
 			}
 
 			queue.Add(&player)
