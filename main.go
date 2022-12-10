@@ -42,7 +42,7 @@ func main() {
 
 func MakeMatch() {
 	if len(queue.Items) == 1 {
-		err := queue.Items[0].Send("Please wait for other players")
+		err := queue.Items[0].SendMessage("Please wait for other players")
 
 		if err != nil {
 			log.Println(err)

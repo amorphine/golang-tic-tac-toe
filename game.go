@@ -11,7 +11,8 @@ import (
 type Client interface {
 	AskForMove() (string, error)
 	OnGameFinish()
-	Send(s string) error
+	OnBoardStateUpdate(b *Board)
+	SendMessage(s string) error
 	SendBoardState(b *Board) error
 	GetDisconnectChan() chan bool
 }
@@ -36,8 +37,8 @@ func (s Symbol) String() string {
 }
 
 type Board struct {
-	Size  int
-	Cells [][]Symbol
+	Size  int        `json:"size"`
+	Cells [][]Symbol `json:"cells"`
 }
 
 func (b *Board) SetSymbol(s Symbol, x, y int) {
@@ -102,14 +103,14 @@ type Player struct {
 
 type Game struct {
 	Board
-	Players []*Player
-	Winner  *Player
+	Players            []*Player
+	Winner             *Player
 	DisconnectedPlayer chan *Player
 }
 
 func (g *Game) Broadcast(s string) error {
 	for _, p := range g.Players {
-		err := p.Send(s)
+		err := p.SendMessage(s)
 
 		if err != nil {
 			return err
@@ -148,7 +149,7 @@ func (g *Game) Move(p *Player) error {
 			continue
 		}
 
-		err := otherPlayer.Send(fmt.Sprintf("Player %d is thinking", p.Symbol))
+		err := otherPlayer.SendMessage(fmt.Sprintf("Player %d is thinking", p.Symbol))
 
 		if err != nil {
 			return err
@@ -167,57 +168,76 @@ func (g *Game) Move(p *Player) error {
 	return nil
 }
 
-func (g *Game) Start() error {
+func (game *Game) SendBoardState() error {
+	for _, p := range game.Players {
+		err := p.SendBoardState(&game.Board)
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (game *Game) Start() error {
 	// check enough players
-	if len(g.Players) < 2 {
+	if len(game.Players) < 2 {
 		return errors.New("not enough players")
 	}
 
 	// find the first player
 	var player *Player
 
-	for _, p := range g.Players {
+	for _, p := range game.Players {
 		if p.Symbol == Cross {
 			player = p
 		}
+	}
 
-		err := p.SendBoardState(&g.Board)
+	err := game.SendBoardState()
 
-		if err != nil {
-			log.Println(err)
+	if err != nil {
+		log.Println(err)
 
-			g.Finish()
+		game.Finish()
 
-			return err
-		}
+		return err
 	}
 
 	if player == nil {
-		player = g.Players[0]
+		player = game.Players[0]
 	}
 
 	// start cycle
 	for {
-		if g.Winner != nil || g.CheckAllCellsBusy() {
+		if game.Winner != nil || game.CheckAllCellsBusy() {
 			break
 		}
-		err := g.Move(player)
+
+		err := game.Move(player)
 
 		if err != nil {
+			game.Finish()
+
 			return err
 		}
+	
+		for _, p := range game.Players {
+			p.OnBoardStateUpdate(&game.Board)
+		}
 
-		player = g.NextPlayer(player)
+		player = game.NextPlayer(player)
 	}
 
 	// finish game
-	g.Finish()
+	game.Finish()
 
 	return nil
 }
 
 func (g *Game) AskForMove(player *Player) (x, y int) {
-	prompt, err := player.AskForMove()
+	input, err := player.AskForMove()
 
 	if err != nil {
 		log.Println(err)
@@ -227,9 +247,9 @@ func (g *Game) AskForMove(player *Player) (x, y int) {
 		return
 	}
 
-	prompt = strings.Trim(prompt, " ")
+	input = strings.Trim(input, " ")
 
-	arr := strings.Split(prompt, " ")
+	arr := strings.Split(input, " ")
 
 	if len(arr) != 2 {
 		return g.AskForMove(player)
@@ -249,7 +269,7 @@ func (g *Game) AskForMove(player *Player) (x, y int) {
 
 	// check bounds
 	if x > g.Size-1 || y > g.Size-1 {
-		_ = player.Send("Out of bounds")
+		_ = player.SendMessage("Out of bounds")
 
 		g.AskForMove(player)
 	}
@@ -260,7 +280,7 @@ func (g *Game) AskForMove(player *Player) (x, y int) {
 
 	g.SetSymbol(player.Symbol, x, y)
 
-	_ = player.Send("You move has been accepted")
+	_ = player.SendMessage("You move has been accepted")
 
 	return
 }
@@ -297,7 +317,7 @@ func CreateGame(a, b Client) *Game {
 	}
 
 	for _, player := range g.Players {
-		_ = player.Send(fmt.Sprintf("You play for %s", player.Symbol))
+		_ = player.SendMessage(fmt.Sprintf("You play for %s", player.Symbol))
 	}
 
 	return &g

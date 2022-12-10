@@ -16,7 +16,7 @@ func (c *TelnetClient) GetDisconnectChan() chan bool {
 	return c.disconnectChan
 }
 
-func (c *TelnetClient) Send(s string) error {
+func (c *TelnetClient) SendMessage(s string) error {
 	con := c.Connection
 
 	_, err := con.Write([]byte(s + "\n\r"))
@@ -64,7 +64,7 @@ func PrintBoard(b *Board) string {
 }
 
 func (c *TelnetClient) SendBoardState(b *Board) error {
-	err := c.Send(PrintBoard(b))
+	err := c.SendMessage(PrintBoard(b))
 
 	if err != nil {
 		log.Fatal("TelnetClient lost connection")
@@ -74,7 +74,7 @@ func (c *TelnetClient) SendBoardState(b *Board) error {
 }
 
 func (c *TelnetClient) AskForMove() (string, error) {
-	err := c.Send("Your turn")
+	err := c.SendMessage("Your turn")
 
 	if err != nil {
 		return "", err
@@ -82,7 +82,7 @@ func (c *TelnetClient) AskForMove() (string, error) {
 
 	input := make([]byte, 1)
 
-	var sb strings.Builder
+	var stringBuilder strings.Builder
 
 	for {
 		_, err = c.Connection.Read(input)
@@ -94,10 +94,18 @@ func (c *TelnetClient) AskForMove() (string, error) {
 		stringInput := string(input)
 
 		if stringInput == "\r" || stringInput == "\n" {
-			return sb.String(), nil
+			return stringBuilder.String(), nil
 		}
 
-		sb.WriteString(stringInput)
+		stringBuilder.WriteString(stringInput)
+	}
+}
+
+func (c *TelnetClient) OnBoardStateUpdate(board *Board) {
+	err := c.SendBoardState(board)
+
+	if err != nil {
+		c.disconnectChan <- true
 	}
 }
 
@@ -105,7 +113,7 @@ func (c *TelnetClient) OnGameFinish() {
 	_ = c.Connection.Close()
 }
 
-func StartTelnetServer(c chan Client) {
+func StartTelnetServer(incomePlayerChannel chan Client) {
 	log.Print("Making listener")
 
 	listener, err := net.Listen("tcp", ":5555")
@@ -135,7 +143,7 @@ func StartTelnetServer(c chan Client) {
 
 			queue.Add(&player)
 
-			c <- &player
+			incomePlayerChannel <- &player
 		}()
 	}
 }

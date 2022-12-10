@@ -12,12 +12,12 @@ import (
 
 type WebsocketClient struct {
 	*websocket.Conn
-	moves          chan string
+	movesChan          chan string
 	disconnectChan chan bool
 }
 
 func NewWebsocketClient(connection *websocket.Conn) *WebsocketClient {
-	c := WebsocketClient{
+	client := WebsocketClient{
 		connection,
 		make(chan string),
 		make(chan bool),
@@ -30,21 +30,21 @@ func NewWebsocketClient(connection *websocket.Conn) *WebsocketClient {
 			if err != nil {
 				log.Println(err)
 			}
-		}(c.Conn)
+		}(client.Conn)
 
 	loop:
 		for {
-			msgType, buf, err := c.Conn.ReadMessage()
+			msgType, buf, err := client.Conn.ReadMessage()
 
 			if err != nil {
 				log.Println(err)
-				c.disconnectChan <- true
+				client.disconnectChan <- true
 				break
 			}
 
 			switch msgType {
 			case websocket.CloseMessage:
-				c.disconnectChan <- true
+				client.disconnectChan <- true
 				break loop
 			case websocket.TextMessage:
 				var move MoveJson
@@ -56,12 +56,12 @@ func NewWebsocketClient(connection *websocket.Conn) *WebsocketClient {
 					continue
 				}
 
-				c.moves <- fmt.Sprintf("%s %s", move.X, move.Y)
+				client.movesChan <- fmt.Sprintf("%s %s", move.X, move.Y)
 			}
 		}
 	}()
 
-	return &c
+	return &client
 }
 
 type MoveJson struct {
@@ -73,22 +73,36 @@ type MessageJson struct {
 	Message string `json:"message"`
 }
 
-func (w *WebsocketClient) AskForMove() (string, error) {
+func (client *WebsocketClient) AskForMove() (string, error) {
+	err := client.SendMessage("Your turn")
+
+	if err != nil {
+		return "", err
+	}
+
 	select {
-	case <- w.disconnectChan:
+	case <- client.disconnectChan:
 		return "", errors.New("Client disconnected")
-	case move := <-w.moves:
+	case move := <-client.movesChan:
 		return move, nil
+	}
+}
+
+func (c *WebsocketClient) OnBoardStateUpdate(board *Board) {
+	err := c.SendBoardState(board)
+
+	if err != nil {
+		c.disconnectChan <- true
 	}
 }
 
 func (w *WebsocketClient) OnGameFinish() {
 	close(w.disconnectChan)
-	close(w.moves)
+	close(w.movesChan)
 	w.Conn.Close()
 }
 
-func (w *WebsocketClient) Send(s string) error {
+func (w *WebsocketClient) SendMessage(s string) error {
 	msg := MessageJson{
 		Message: s,
 	}
@@ -112,6 +126,8 @@ func StartWebsocketServer(c chan Client) {
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("incoming websocket connection")
+
 		con, err := upgrader.Upgrade(w, r, nil)
 
 		if err != nil {
