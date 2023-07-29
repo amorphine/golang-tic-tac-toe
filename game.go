@@ -271,7 +271,7 @@ func (g *Game) AskForMove(player *Player) (x, y int) {
 	if x > g.Size-1 || y > g.Size-1 {
 		_ = player.SendMessage("Out of bounds")
 
-		g.AskForMove(player)
+		return g.AskForMove(player)
 	}
 
 	if g.GetSymbol(x, y) != None {
@@ -308,12 +308,16 @@ func CreateGame(a, b Client) *Game {
 		Symbol: Circle,
 	}
 
+	players := []*Player{
+		p1,
+		p2,
+	}
+
+	board := CreateBoard()
+
 	g := Game{
-		Board: CreateBoard(),
-		Players: []*Player{
-			p1,
-			p2,
-		},
+		Board: board,
+		Players: players,
 	}
 
 	for _, player := range g.Players {
